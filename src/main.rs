@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ping::socket::IcmpSocket;
 use ping::{icmp, ipv4};
@@ -22,10 +22,15 @@ fn main() {
     loop {
         let sock = IcmpSocket::new().expect("failed creating icmp socket");
 
+        let now = Instant::now();
+
         let _sent_bytes = sock.sendto(PING, ipv4).unwrap();
 
         let mut buf: [u8; 128] = [0; 128];
         let recv_bytes = sock.recvfrom(&mut buf).unwrap();
+
+        // round trip time in ms
+        let rtt = now.elapsed().as_micros() as f32 / 1000f32;
 
         if let Ok(ip_hdr) = ipv4::HdrIpv4::try_from(&buf[0..IP_HDR_LEN]) {
             match icmp::Reply::try_from(&buf[IP_HDR_LEN..recv_bytes as usize]) {
@@ -35,7 +40,7 @@ fn main() {
                     ip_hdr.dst_addr,
                     reply.seq,
                     ip_hdr.ttl,
-                    0
+                    rtt
                 ),
                 Err(_) => println!("something went wrong"),
             }
