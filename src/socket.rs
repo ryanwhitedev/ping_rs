@@ -16,12 +16,12 @@ impl IcmpSocket {
             Ok(IcmpSocket { fd })
         }
     }
-    pub fn sendto(&self, pkt: &[u8], addr: Ipv4Addr) -> Result<usize, std::io::Error> {
+    pub fn sendto(&self, pkt: &[u8], dst_addr: Ipv4Addr) -> Result<usize, std::io::Error> {
         let addr = libc::sockaddr_in {
             sin_family: libc::AF_INET as u16,
             sin_port: 0,
             sin_addr: libc::in_addr {
-                s_addr: addr.into(),
+                s_addr: u32::from_be(dst_addr.into()),
             },
             sin_zero: [0; 8],
         };
@@ -75,4 +75,3 @@ impl IcmpSocket {
         }
     }
 }
-
