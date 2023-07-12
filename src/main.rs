@@ -5,18 +5,20 @@ use std::time::{Duration, Instant};
 use ping::socket::IcmpSocket;
 use ping::{icmp, ipv4};
 
-const PING: &[u8] = &[8, 0, 41, 178, 195, 75, 0, 1, 9, 0, 2, 1, 0];
 const IP_HDR_LEN: usize = 20;
 
 fn main() {
-    let ipv4 = Ipv4Addr::from_str("127.0.0.1").unwrap();
+    let dst_addr = Ipv4Addr::from_str("8.8.8.8").unwrap();
+
+    let mut request = icmp::Request::new(49995, 1, vec![9, 0, 2, 1, 0]);
+    let request = request.pack();
 
     println!(
         "PING {} ({}) {}({}) bytes of data.",
-        ipv4,
-        ipv4,
-        PING.len(),
-        PING.len() + IP_HDR_LEN
+        dst_addr,
+        dst_addr,
+        request.len(),
+        request.len() + IP_HDR_LEN
     );
 
     loop {
@@ -24,7 +26,7 @@ fn main() {
 
         let now = Instant::now();
 
-        let _sent_bytes = sock.sendto(PING, ipv4).unwrap();
+        let _sent_bytes = sock.sendto(&request, dst_addr).unwrap();
 
         let mut buf: [u8; 128] = [0; 128];
         let recv_bytes = sock.recvfrom(&mut buf).unwrap();
@@ -37,7 +39,7 @@ fn main() {
                 Ok(reply) => println!(
                     "{} bytes from {}: icmp_seq={} ttl={} time={:.2} ms",
                     recv_bytes - IP_HDR_LEN,
-                    ip_hdr.dst_addr,
+                    ip_hdr.src_addr,
                     reply.seq,
                     ip_hdr.ttl,
                     rtt
