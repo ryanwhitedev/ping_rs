@@ -1,5 +1,7 @@
 use std::net::Ipv4Addr;
 
+pub const IP_HDR_LEN: usize = 20;
+
 #[derive(Debug)]
 pub struct HdrIpv4 {
     pub vers_ihl: u8,
