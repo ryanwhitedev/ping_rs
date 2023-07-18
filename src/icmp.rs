@@ -19,22 +19,27 @@ pub struct Request {
 
 impl Request {
     pub fn new(dst_addr: Ipv4Addr, pid: u16, seq: u16, payload: Vec<u8>) -> Self {
-        Self { dst_addr, pid, seq, payload }
+        Self {
+            dst_addr,
+            pid,
+            seq,
+            payload,
+        }
     }
     pub fn pack(&self) -> Vec<u8> {
         let mut packet: Vec<u8> = Vec::new();
         packet.push(ECHO_REQUEST);
         packet.push(ECHO_CODE);
-        packet.extend(0u16.to_be_bytes());
-        packet.extend(self.pid.to_be_bytes());
-        packet.extend(self.seq.to_be_bytes());
+        packet.extend(0u16.to_le_bytes());
+        packet.extend(self.pid.to_le_bytes());
+        packet.extend(self.seq.to_le_bytes());
         packet.extend(self.payload.clone());
 
         // Calc checksum from packet with zeroed checksum
         let checksum = crate::util::ip_checksum(&packet);
 
         // Replace zeroed checksum with actual checksum
-        let checksum_bytes = checksum.to_be_bytes();
+        let checksum_bytes = checksum.to_le_bytes();
         packet[2] = checksum_bytes[0];
         packet[3] = checksum_bytes[1];
 
@@ -71,7 +76,7 @@ impl Request {
                     rtt_ms
                 );
                 Ok(reply)
-            },
+            }
             Err(_) => Err("failed to parse icmp reply".into()),
         }
     }

@@ -4,7 +4,7 @@ pub fn ip_checksum(bytes: &[u8]) -> u16 {
     // Split bytes into 16 bit words and sum
     for chunk in bytes.chunks(2) {
         let word = if chunk.len() == 2 {
-            u16::from_be_bytes(chunk.try_into().unwrap()) as u32
+            u16::from_le_bytes(chunk.try_into().unwrap()) as u32
         } else {
             chunk[0] as u32
         };
@@ -29,8 +29,7 @@ mod tests {
             0xc0, 0xa8, 0x0, 0xc7,
         ];
         let checksum = ip_checksum(&header);
-        let expected = u16::from_be_bytes([0xb8, 0x61]);
+        let expected = u16::from_le_bytes([0xb8, 0x61]);
         assert_eq!(checksum, expected);
     }
 }
-

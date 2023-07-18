@@ -9,7 +9,7 @@ fn main() {
 
     let pid = std::process::id() as u16;
     let mut seq = 1;
-    let payload = vec![9, 0, 2, 1, 0];
+    let payload = "hello world!".as_bytes();
 
     println!(
         "PING {} ({}) {}({}) bytes of data.",
@@ -20,14 +20,14 @@ fn main() {
     );
 
     loop {
-        let request = icmp::Request::new(dst_addr, pid, seq, payload.clone());
+        let request = icmp::Request::new(dst_addr, pid, seq, payload.to_vec());
 
         let reply = match request.send() {
             Ok(reply) => reply,
             Err(error) => {
                 println!("{}", error);
                 std::process::exit(1);
-            },
+            }
         };
 
         seq = reply.seq + 1;
