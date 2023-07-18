@@ -4,6 +4,7 @@ use std::time::Instant;
 use crate::{ipv4, socket};
 
 pub const ICMP_HDR_LEN: usize = 20;
+const DEFAULT_TIMEOUT: i32 = 4000; // ms
 
 const ECHO_REQUEST: u8 = 8;
 const ECHO_CODE: u8 = 0;
@@ -44,7 +45,7 @@ impl Request {
 
         let now = Instant::now();
 
-        let socket = socket::IcmpSocket::new().expect("failed creating icmp socket");
+        let socket = socket::SocketIcmp::new(DEFAULT_TIMEOUT).expect("failed creating icmp socket");
         let _sent_bytes = socket.sendto(&request, self.dst_addr).unwrap();
 
         // Receive buffer
@@ -63,7 +64,7 @@ impl Request {
             Ok(reply) => {
                 println!(
                     "{} bytes from {}: icmp_seq={} ttl={} time={:.2} ms",
-                    recv_bytes - ipv4::IP_HDR_LEN,
+                    recv_bytes - ipv4::IP_HDR_LEN as isize,
                     ip_hdr.src_addr,
                     reply.seq,
                     ip_hdr.ttl,
