@@ -7,7 +7,32 @@ use ping::{
     icmp::{ICMP_HDR_LEN, Request, Reply}
 };
 
+static mut SIGNAL_CTRL_C: bool = false;
+
+fn register_signal_handlers() {
+    unsafe { 
+        libc::signal(libc::SIGINT, handle_sigint as usize);
+    }
+}
+
+// Handles SIGINT (ie. ctrl-c) by setting a global flag to indicate this signal has been
+// received
+fn handle_sigint(_signal: i32) {
+    // re-register signal handlers
+    register_signal_handlers();
+    // set global flag to indicate interrupt signal received
+    unsafe { 
+        SIGNAL_CTRL_C = true;
+    }
+}
+
+fn statistics(dst_addr: Ipv4Addr) {
+    println!("\n--- {} ping statistics ---", dst_addr);
+}
+
 fn main() {
+    register_signal_handlers();
+
     let dst_addr = Ipv4Addr::from_str("8.8.8.8").unwrap();
 
     let pid = std::process::id() as u16;
@@ -58,6 +83,12 @@ fn main() {
                 std::process::exit(1);
             }
         };
+
+        // Handle SIGINT: print statistics and exit
+        if unsafe { SIGNAL_CTRL_C } {
+            statistics(dst_addr);
+            std::process::exit(1);
+        }
 
         seq += 1;
 
