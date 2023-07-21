@@ -1,7 +1,8 @@
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
-use crate::{ipv4, socket};
+use crate::ipv4;
+use crate::socket::{SocketError, SocketIcmp};
 
 pub const ICMP_HDR_LEN: usize = 20;
 const DEFAULT_TIMEOUT: i32 = 4000; // ms
@@ -50,12 +51,16 @@ impl Request {
 
         let now = Instant::now();
 
-        let socket = socket::SocketIcmp::new(DEFAULT_TIMEOUT).expect("failed creating icmp socket");
+        let socket = SocketIcmp::new(DEFAULT_TIMEOUT).expect("failed creating icmp socket");
         let _sent_bytes = socket.sendto(&request, self.dst_addr).unwrap();
 
         // Receive buffer
         let mut buf: [u8; 128] = [0; 128];
-        let recv_bytes = socket.recvfrom(&mut buf).unwrap();
+        let recv_bytes = match socket.recvfrom(&mut buf) {
+            Ok(bytes) => bytes,
+            Err(SocketError::TimedOut) => return Ok(Reply::Dropped),
+            Err(e) => return Err(format!("recv error: {}", e)),
+        };
 
         // Round trip time in ms
         let rtt_ms = now.elapsed().as_micros() as f32 / 1000f32;
@@ -65,47 +70,38 @@ impl Request {
             Err(_) => return Err("failed to parse IP header".into()),
         };
 
-        match Reply::try_from(&buf[ipv4::IP_HDR_LEN..recv_bytes as usize]) {
-            Ok(reply) => {
-                println!(
-                    "{} bytes from {}: icmp_seq={} ttl={} time={:.2} ms",
-                    recv_bytes - ipv4::IP_HDR_LEN as isize,
-                    ip_hdr.src_addr,
-                    reply.seq,
-                    ip_hdr.ttl,
-                    rtt_ms
-                );
-                Ok(reply)
-            }
-            Err(_) => Err("failed to parse icmp reply".into()),
-        }
+        Reply::parse(
+            &buf[ipv4::IP_HDR_LEN..recv_bytes as usize],
+            ip_hdr.ttl,
+            rtt_ms,
+        )
+        .map_err(|e| e.to_string())
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Reply {
-    pub r#type: u8,
-    pub code: u8,
-    pub checksum: u16,
-    pub pid: u16,
-    pub seq: u16,
-    pub payload: Vec<u8>,
+#[derive(Debug)]
+pub enum Reply {
+    Echo {
+        ttl: u8,
+        rtt: f32,
+        data: Vec<u8>,
+    },
+    Dropped,
+    HostUnreachable,
+    Unknown,
 }
 
-impl TryFrom<&[u8]> for Reply {
-    type Error = std::array::TryFromSliceError;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let checksum = u16::from_be_bytes(bytes[2..4].try_into()?);
-        let pid = u16::from_be_bytes(bytes[4..6].try_into()?);
-        let seq = u16::from_be_bytes(bytes[6..8].try_into()?);
-        Ok(Reply {
-            r#type: bytes[0],
-            code: bytes[1],
-            checksum,
-            pid,
-            seq,
-            payload: bytes[8..].to_vec(),
-        })
+impl Reply {
+    pub fn parse(bytes: &[u8], ttl: u8, rtt: f32) -> Result<Reply, Box<dyn std::error::Error>> {
+        let data = bytes.to_vec();
+        match (bytes[0], bytes[1]) {
+            (0, 0) => Ok(Reply::Echo {
+                ttl,
+                rtt,
+                data,
+            }),
+            (3, 1) => Ok(Reply::HostUnreachable),
+            (_, _) => Ok(Reply::Unknown),
+        }
     }
 }
