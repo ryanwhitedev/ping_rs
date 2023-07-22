@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::thread;
 
 use ping::{
@@ -28,8 +28,59 @@ fn handle_sigint(_signal: i32) {
     }
 }
 
-fn statistics(dst_addr: Ipv4Addr) {
+fn statistics(dst_addr: Ipv4Addr, period: f32, data: Vec<Reply>) {
     println!("\n--- {} ping statistics ---", dst_addr);
+
+    let sent = data.len();
+    let received = data
+        .iter()
+        .filter(|&p| matches!(p, Reply::Echo { .. }))
+        .count();
+
+    print!("{} packets transmitted, {} received, ", sent, received);
+
+    let errors = data
+        .iter()
+        .filter(|&p| matches!(p, Reply::HostUnreachable))
+        .count();
+
+    if errors > 0 {
+        print!("+{} errors, ", errors);
+    }
+
+    let packet_loss = if sent > 0 {
+        (sent - received) as f32 / sent as f32 * 100_f32
+    } else {
+        0_f32
+    };
+
+    println!("{:.0}% packet loss, time {:.0} ms", packet_loss, period);
+
+    let rtt: Vec<f32> = data
+        .iter()
+        .filter_map(|p| match p {
+            Reply::Echo { rtt, .. } => Some(*rtt),
+            _ => None,
+        })
+        .collect();
+
+    // Print min/avg/max/mdev when we have results
+    if !rtt.is_empty() {
+        let min = rtt.iter().fold(f32::MAX, |a, b| a.min(*b));
+        let max = rtt.iter().fold(f32::MIN, |a, b| a.max(*b));
+        let avg: f32 = rtt.iter().sum::<f32>() / rtt.len() as f32;
+
+        // Calculate standard deviation
+        let sum_deviations: f32 = rtt.iter().map(|f| (f - avg).powi(2)).sum();
+        let sdev = (sum_deviations / rtt.len() as f32).sqrt();
+
+        println!(
+            "rtt min/avg/max/mdev = {:.3}/{:.3}/{:.3}/{:.3} ms",
+            min, avg, max, sdev
+        );
+    }
+
+    println!("\n");
 }
 
 fn main() {
@@ -43,6 +94,9 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
     let mut results = Vec::new();
+
+    // Start timer
+    let now = Instant::now();
 
     println!(
         "PING {} ({}) {}({}) bytes of data.",
@@ -90,6 +144,8 @@ fn main() {
                 }
             };
 
+            dbg!(&reply);
+
             tx.send(reply).expect("failed sending to channel");
 
             seq += 1;
@@ -108,7 +164,8 @@ fn main() {
 
         // Handle SIGINT: print statistics and exit
         if unsafe { SIGNAL_CTRL_C } {
-            statistics(dst_addr);
+            let duration = now.elapsed().as_micros() as f32 / 1000f32;
+            statistics(dst_addr, duration, results);
             std::process::exit(1);
         }
 

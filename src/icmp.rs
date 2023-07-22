@@ -64,6 +64,7 @@ impl Request {
 
         // Round trip time in ms
         let rtt_ms = now.elapsed().as_micros() as f32 / 1000f32;
+        dbg!(rtt_ms);
 
         let ip_hdr = match ipv4::HdrIpv4::try_from(&buf[0..ipv4::IP_HDR_LEN]) {
             Ok(hdr) => hdr,
@@ -94,6 +95,7 @@ pub enum Reply {
 impl Reply {
     pub fn parse(bytes: &[u8], ttl: u8, rtt: f32) -> Result<Reply, Box<dyn std::error::Error>> {
         let data = bytes.to_vec();
+        dbg!(bytes);
         match (bytes[0], bytes[1]) {
             (0, 0) => Ok(Reply::Echo {
                 ttl,
