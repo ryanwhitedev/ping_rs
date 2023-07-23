@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
-use crate::ipv4;
+use crate::ip;
 use crate::socket::{SocketError, SocketIcmp};
 
 pub const ICMP_HDR_LEN: usize = 20;
@@ -31,9 +31,9 @@ impl Request {
         let mut packet: Vec<u8> = Vec::new();
         packet.push(ECHO_REQUEST);
         packet.push(ECHO_CODE);
-        packet.extend(0u16.to_le_bytes());
-        packet.extend(self.pid.to_le_bytes());
-        packet.extend(self.seq.to_le_bytes());
+        packet.extend(0u16.to_be_bytes());
+        packet.extend(self.pid.to_be_bytes());
+        packet.extend(self.seq.to_be_bytes());
         packet.extend(self.payload.clone());
 
         // Calc checksum from packet with zeroed checksum
@@ -46,7 +46,7 @@ impl Request {
 
         packet
     }
-    pub fn send(self) -> Result<Reply, String> {
+    pub fn send(self) -> Result<Response, String> {
         let request = self.pack();
 
         let now = Instant::now();
@@ -58,21 +58,20 @@ impl Request {
         let mut buf: [u8; 128] = [0; 128];
         let recv_bytes = match socket.recvfrom(&mut buf) {
             Ok(bytes) => bytes,
-            Err(SocketError::TimedOut) => return Ok(Reply::Dropped),
+            Err(SocketError::TimedOut) => return Ok(Response::Dropped),
             Err(e) => return Err(format!("recv error: {}", e)),
         };
 
         // Round trip time in ms
         let rtt_ms = now.elapsed().as_micros() as f32 / 1000f32;
-        dbg!(rtt_ms);
 
-        let ip_hdr = match ipv4::HdrIpv4::try_from(&buf[0..ipv4::IP_HDR_LEN]) {
+        let ip_hdr = match ip::HdrIpv4::try_from(&buf[0..ip::IPV4_HDR_LEN]) {
             Ok(hdr) => hdr,
             Err(_) => return Err("failed to parse IP header".into()),
         };
 
-        Reply::parse(
-            &buf[ipv4::IP_HDR_LEN..recv_bytes as usize],
+        Response::parse(
+            &buf[ip::IPV4_HDR_LEN..recv_bytes as usize],
             ip_hdr.ttl,
             rtt_ms,
         )
@@ -81,8 +80,8 @@ impl Request {
 }
 
 #[derive(Debug)]
-pub enum Reply {
-    Echo {
+pub enum Response {
+    EchoReply {
         ttl: u8,
         rtt: f32,
         data: Vec<u8>,
@@ -92,18 +91,17 @@ pub enum Reply {
     Unknown,
 }
 
-impl Reply {
-    pub fn parse(bytes: &[u8], ttl: u8, rtt: f32) -> Result<Reply, Box<dyn std::error::Error>> {
+impl Response {
+    pub fn parse(bytes: &[u8], ttl: u8, rtt: f32) -> Result<Response, Box<dyn std::error::Error>> {
         let data = bytes.to_vec();
-        dbg!(bytes);
         match (bytes[0], bytes[1]) {
-            (0, 0) => Ok(Reply::Echo {
+            (0, 0) => Ok(Response::EchoReply {
                 ttl,
                 rtt,
                 data,
             }),
-            (3, 1) => Ok(Reply::HostUnreachable),
-            (_, _) => Ok(Reply::Unknown),
+            (3, 1) => Ok(Response::HostUnreachable),
+            (_, _) => Ok(Response::Unknown),
         }
     }
 }

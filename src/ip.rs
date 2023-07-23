@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 
-pub const IP_HDR_LEN: usize = 20;
+pub const IPV4_HDR_LEN: usize = 20;
 
 #[derive(Debug)]
 pub struct HdrIpv4 {
