@@ -1,9 +1,7 @@
 use std::net::Ipv4Addr;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
 use std::thread;
-
-use crate::icmp::{Request, Response};
+use std::time::{Duration, Instant};
 
 pub mod icmp;
 pub mod ip;
@@ -33,38 +31,12 @@ pub fn ping(dst_addr: Ipv4Addr) {
 
     thread::spawn(move || {
         loop {
-            let request = Request::new(dst_addr, pid, seq, payload.to_vec());
+            let request = icmp::Request::new(dst_addr, pid, seq, payload.to_vec());
 
             let reply = match request.send() {
-                Ok(reply) => match reply {
-                    Response::EchoReply { ttl, rtt, ref data } => {
-                        println!(
-                            "{} bytes from {}: icmp_seq={} ttl={} time={:.2} ms",
-                            data.len(),
-                            dst_addr,
-                            seq,
-                            ttl,
-                            rtt,
-                        );
-                        reply
-                    },
-                    Response::Dropped => {
-                        println!("Packet Dropped");
-                        reply
-                    },
-                    Response::HostUnreachable => {
-                        println!(
-                            "From {} ({}) icmp_seq={} Destination Host Unreachable",
-                            dst_addr,
-                            dst_addr,
-                            seq
-                        );
-                        reply
-                    },
-                    _ => reply,
-                },
+                Ok(reply) => reply,
                 Err(error) => {
-                    println!("{}", error);
+                    println!("Response error: {}", error);
                     std::process::exit(1);
                 }
             };

@@ -1,14 +1,21 @@
+use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
 use crate::ip;
 use crate::socket::{SocketError, SocketIcmp};
 
-pub const ICMP_HDR_LEN: usize = 20;
+pub const ICMP_HDR_LEN: usize = 8;
 const DEFAULT_TIMEOUT: i32 = 4000; // ms
 
+pub const MAX_RECV_RETRIES: u8 = 8;
+
 const ECHO_REQUEST: u8 = 8;
-const ECHO_CODE: u8 = 0;
+const ECHO_REQUEST_CODE: u8 = 0;
+const ECHO_REPLY: u8 = 0;
+const ECHO_REPLY_CODE: u8 = 0;
+const DEST_UNREACHABLE: u8 = 3;
+const HOST_UNREACHABLE_CODE: u8 = 1;
 
 #[derive(Debug)]
 pub struct Request {
@@ -30,7 +37,7 @@ impl Request {
     pub fn pack(&self) -> Vec<u8> {
         let mut packet: Vec<u8> = Vec::new();
         packet.push(ECHO_REQUEST);
-        packet.push(ECHO_CODE);
+        packet.push(ECHO_REQUEST_CODE);
         packet.extend(0u16.to_be_bytes());
         packet.extend(self.pid.to_be_bytes());
         packet.extend(self.seq.to_be_bytes());
@@ -46,7 +53,7 @@ impl Request {
 
         packet
     }
-    pub fn send(self) -> Result<Response, String> {
+    pub fn send(self) -> Result<Response, ResponseError> {
         let request = self.pack();
 
         let now = Instant::now();
@@ -54,54 +61,133 @@ impl Request {
         let socket = SocketIcmp::new(DEFAULT_TIMEOUT).expect("failed creating icmp socket");
         let _sent_bytes = socket.sendto(&request, self.dst_addr).unwrap();
 
-        // Receive buffer
-        let mut buf: [u8; 128] = [0; 128];
-        let recv_bytes = match socket.recvfrom(&mut buf) {
-            Ok(bytes) => bytes,
-            Err(SocketError::TimedOut) => return Ok(Response::Dropped),
-            Err(e) => return Err(format!("recv error: {}", e)),
-        };
+        for _ in 0..MAX_RECV_RETRIES {
+            let mut buf: [u8; 128] = [0; 128];
+            let recv_bytes = match socket.recvfrom(&mut buf) {
+                Ok(bytes) => bytes,
+                Err(SocketError::TimedOut) => return Ok(Response::Dropped),
+                Err(e) => return Err(ResponseError::Error(format!("recv error: {}", e))),
+            };
 
-        // Round trip time in ms
-        let rtt_ms = now.elapsed().as_micros() as f32 / 1000f32;
+            // Round trip time in ms
+            let rtt_ms = now.elapsed().as_micros() as f32 / 1000f32;
 
-        let ip_hdr = match ip::HdrIpv4::try_from(&buf[0..ip::IPV4_HDR_LEN]) {
-            Ok(hdr) => hdr,
-            Err(_) => return Err("failed to parse IP header".into()),
-        };
+            let ip_hdr = match ip::HdrIpv4::try_from(&buf[0..ip::IPV4_HDR_LEN]) {
+                Ok(hdr) => hdr,
+                Err(_) => return Err(ResponseError::Error("failed to parse IP header".into())),
+            };
 
-        Response::parse(
-            &buf[ip::IPV4_HDR_LEN..recv_bytes as usize],
-            ip_hdr.ttl,
-            rtt_ms,
-        )
-        .map_err(|e| e.to_string())
+            match Response::parse(
+                &buf[ip::IPV4_HDR_LEN..recv_bytes as usize],
+                self.pid,
+                self.seq,
+                ip_hdr.src_addr,
+                ip_hdr.ttl,
+                rtt_ms,
+            ) {
+                Ok(resp) => match resp {
+                    Response::EchoReply {
+                        addr,
+                        seq,
+                        ttl,
+                        rtt,
+                        ref data,
+                    } => {
+                        println!(
+                            "{} bytes from {}: icmp_seq={} ttl={} time={:.2} ms",
+                            data.len(),
+                            addr,
+                            seq,
+                            ttl,
+                            rtt,
+                        );
+                        return Ok(resp);
+                    }
+                    Response::Dropped => {
+                        println!("Packet Dropped");
+                        return Ok(resp);
+                    }
+                    Response::HostUnreachable => {
+                        println!(
+                            "From {} ({}) icmp_seq={} Destination Host Unreachable",
+                            self.dst_addr, self.dst_addr, self.seq
+                        );
+                        return Ok(resp);
+                    }
+                },
+                Err(error) => match error {
+                    ResponseError::UnexpectedPacket => {
+                        // Go to start of loop and check if next packet matches
+                        continue;
+                    }
+                    ResponseError::Error(err) => {
+                        println!("Response error: {}", err);
+                        std::process::exit(1);
+                    }
+                },
+            }
+        }
+        Err(ResponseError::Error("exceeded max recv retries".into()))
     }
 }
 
 #[derive(Debug)]
 pub enum Response {
     EchoReply {
+        addr: Ipv4Addr,
+        seq: u16,
         ttl: u8,
         rtt: f32,
         data: Vec<u8>,
     },
-    Dropped,
     HostUnreachable,
-    Unknown,
+    Dropped,
 }
 
 impl Response {
-    pub fn parse(bytes: &[u8], ttl: u8, rtt: f32) -> Result<Response, Box<dyn std::error::Error>> {
+    pub fn parse(
+        bytes: &[u8],
+        req_pid: u16,
+        req_seq: u16,
+        addr: Ipv4Addr,
+        ttl: u8,
+        rtt: f32,
+    ) -> Result<Response, ResponseError> {
+        let icmp_type = bytes[0];
+        let icmp_code = bytes[1];
+        let pid = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
+        let seq = u16::from_be_bytes(bytes[6..8].try_into().unwrap());
         let data = bytes.to_vec();
-        match (bytes[0], bytes[1]) {
-            (0, 0) => Ok(Response::EchoReply {
-                ttl,
-                rtt,
-                data,
-            }),
-            (3, 1) => Ok(Response::HostUnreachable),
-            (_, _) => Ok(Response::Unknown),
+
+        match (icmp_type, icmp_code) {
+            (ECHO_REPLY, ECHO_REPLY_CODE) if req_pid == pid && req_seq == seq => {
+                Ok(Response::EchoReply {
+                    addr,
+                    seq,
+                    ttl,
+                    rtt,
+                    data,
+                })
+            }
+            (DEST_UNREACHABLE, HOST_UNREACHABLE_CODE) => Ok(Response::HostUnreachable),
+            (_, _) => Err(ResponseError::UnexpectedPacket),
         }
     }
 }
+
+#[derive(Debug)]
+pub enum ResponseError {
+    UnexpectedPacket,
+    Error(String),
+}
+
+impl fmt::Display for ResponseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::UnexpectedPacket => f.write_str("Received unexpected packet"),
+            Self::Error(err) => write!(f, "Response error: {}", err),
+        }
+    }
+}
+
+impl std::error::Error for ResponseError {}

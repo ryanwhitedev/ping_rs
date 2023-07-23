@@ -5,7 +5,7 @@ use crate::icmp::Response;
 pub static mut SIGNAL_CTRL_C: bool = false;
 
 pub fn register_signal_handlers() {
-    unsafe { 
+    unsafe {
         libc::signal(libc::SIGINT, handle_sigint as usize);
     }
 }
@@ -16,7 +16,7 @@ fn handle_sigint(_signal: i32) {
     // re-register signal handlers
     register_signal_handlers();
     // set global flag to indicate interrupt signal received
-    unsafe { 
+    unsafe {
         SIGNAL_CTRL_C = true;
     }
 }
