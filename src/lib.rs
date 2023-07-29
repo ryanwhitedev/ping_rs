@@ -1,12 +1,15 @@
 use std::net::Ipv4Addr;
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub mod icmp;
 pub mod ip;
 pub mod socket;
+pub mod statistics;
 pub mod util;
+
+use statistics::Statistics;
 
 pub fn ping(dst_addr: Ipv4Addr) {
     util::register_signal_handlers();
@@ -16,10 +19,8 @@ pub fn ping(dst_addr: Ipv4Addr) {
     let payload = "hello world!".as_bytes();
 
     let (tx, rx) = mpsc::channel();
-    let mut results = Vec::new();
 
-    // Start timer
-    let now = Instant::now();
+    let mut stats = Statistics::new(dst_addr);
 
     println!(
         "PING {} ({}) {}({}) bytes of data.",
@@ -53,14 +54,13 @@ pub fn ping(dst_addr: Ipv4Addr) {
 
     loop {
         // Check if we have received any messages from the thread
-        if let Ok(received) = rx.try_recv() {
-            results.push(received);
+        if let Ok(resp) = rx.try_recv() {
+            stats.update(resp);
         }
 
         // Handle SIGINT: print statistics and exit
         if unsafe { util::SIGNAL_CTRL_C } {
-            let duration = now.elapsed().as_micros() as f32 / 1000f32;
-            util::statistics(dst_addr, duration, results);
+            stats.print();
             std::process::exit(1);
         }
 
