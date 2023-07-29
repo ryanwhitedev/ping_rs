@@ -1,9 +1,9 @@
-use std::{time::Instant, net::Ipv4Addr};
+use std::time::Instant;
 
 use crate::icmp::Response;
 
-pub struct Statistics {
-    destination: Ipv4Addr,
+pub struct Statistics<'a> {
+    destination: &'a str,
     start: Instant,
     sent: u32,
     received: u32,
@@ -12,13 +12,11 @@ pub struct Statistics {
     rtt: Vec<f32>,
 }
 
-impl Statistics {
-    pub fn new(destination: Ipv4Addr) -> Statistics {
-        // Start timer
-        let now = Instant::now();
+impl<'a> Statistics<'a> {
+    pub fn new(destination: &'a str) -> Statistics {
         Self {
             destination,
-            start: now,
+            start: Instant::now(), // Start timer
             sent: 0,
             received: 0,
             errors: 0,
@@ -26,6 +24,7 @@ impl Statistics {
             rtt: Vec::new(),
         }
     }
+    // Update statistics struct based on type of response received
     pub fn update(&mut self, response: Response) {
         self.sent += 1;
         match response {
@@ -41,9 +40,8 @@ impl Statistics {
             },
         }
     }
+    // Calculate and print statistics to stdout
     pub fn print(self) {
-        let duration = self.start.elapsed().as_micros() as f32 / 1000f32;
-
         println!("\n--- {} ping statistics ---", self.destination);
 
         print!("{} packets transmitted, {} received, ", self.sent, self.received);
@@ -58,9 +56,12 @@ impl Statistics {
             0_f32
         };
 
+        // Total amount of time the program has been running
+        let duration = self.start.elapsed().as_micros() as f32 / 1000f32;
+
         println!("{:.0}% packet loss, time {:.0} ms", packet_loss, duration);
 
-        // Print min/avg/max/mdev when we have results
+        // Use round trip time data to determine min/avg/max/mdev
         if !self.rtt.is_empty() {
             let min = self.rtt.iter().fold(f32::MAX, |a, b| a.min(*b));
             let max = self.rtt.iter().fold(f32::MIN, |a, b| a.max(*b));

@@ -1,18 +1,25 @@
-use std::net::Ipv4Addr;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use crate::statistics::Statistics;
+
 pub mod icmp;
 pub mod ip;
 pub mod socket;
-pub mod statistics;
 pub mod util;
+pub mod statistics;
 
-use statistics::Statistics;
-
-pub fn ping(dst_addr: Ipv4Addr) {
+pub fn ping(destination: &str) {
     util::register_signal_handlers();
+
+    let dst_addr = match util::resolve_hostname(destination) {
+        Ok(addr) => addr,
+        Err(_) => {
+            eprintln!("Unable to resolve hostname: {}", destination);
+            std::process::exit(1);
+        }
+    };
 
     let pid = std::process::id() as u16;
     let mut seq = 1;
@@ -20,11 +27,11 @@ pub fn ping(dst_addr: Ipv4Addr) {
 
     let (tx, rx) = mpsc::channel();
 
-    let mut stats = Statistics::new(dst_addr);
+    let mut stats = Statistics::new(destination);
 
     println!(
         "PING {} ({}) {}({}) bytes of data.",
-        dst_addr,
+        destination,
         dst_addr,
         payload.len() + icmp::ICMP_HDR_LEN,
         payload.len() + icmp::ICMP_HDR_LEN + ip::IPV4_HDR_LEN
@@ -54,8 +61,8 @@ pub fn ping(dst_addr: Ipv4Addr) {
 
     loop {
         // Check if we have received any messages from the thread
-        if let Ok(resp) = rx.try_recv() {
-            stats.update(resp);
+        if let Ok(response) = rx.try_recv() {
+            stats.update(response);
         }
 
         // Handle SIGINT: print statistics and exit

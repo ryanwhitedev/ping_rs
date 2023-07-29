@@ -1,4 +1,25 @@
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+
 pub static mut SIGNAL_CTRL_C: bool = false;
+
+// Resolves hostname, or converts the string representation of an ipv4 address, into the IPv4 address type.
+pub fn resolve_hostname(destination: &str) -> Result<Ipv4Addr, String> {
+    let destination = format!("{}:0", destination);
+    let socket_addrs: Vec<_> = destination
+        .to_socket_addrs()
+        .expect("unable to resolve hostname")
+        .filter(|addr| addr.is_ipv4())
+        .collect();
+
+    if let Some(addr) = socket_addrs.get(0) {
+        match addr.ip() {
+            IpAddr::V4(ipv4) => Ok(Ipv4Addr::from(ipv4.octets())),
+            IpAddr::V6(_) => Err("IPv6 is not implemented".into()),
+        }
+    } else {
+        Err("unable to resolve hostname".into())
+    }
+}
 
 pub fn register_signal_handlers() {
     unsafe {
