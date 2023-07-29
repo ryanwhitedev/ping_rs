@@ -68,7 +68,7 @@ pub fn ping(destination: &str) {
         // Handle SIGINT: print statistics and exit
         if unsafe { util::SIGNAL_CTRL_C } {
             stats.print();
-            std::process::exit(1);
+            std::process::exit(0);
         }
 
         // Add small delay to prevent 100% CPU usage
