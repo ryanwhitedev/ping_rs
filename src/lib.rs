@@ -56,15 +56,31 @@ pub fn ping(config: Config) {
             seq += 1;
 
             // Sleep 1s before sending next packet
-            let delay = Duration::from_secs(1);
+            let delay = Duration::from_secs(config.interval as u64);
             thread::sleep(delay);
         }
     });
 
-    loop {
+    let mut counter = 0;
+    let limit = match config.count {
+        Some(n) => n,
+        None => i32::MAX,
+    };
+
+    while counter < limit {
         // Check if we have received any messages from the thread
         if let Ok(response) = rx.try_recv() {
             stats.update(response);
+
+            // Only increment counter if config count is set
+            if config.count.is_some() {
+                counter += 1;
+
+                if counter == config.count.unwrap() {
+                    stats.print();
+                    std::process::exit(0);
+                }
+            }
         }
 
         // Handle SIGINT: print statistics and exit
