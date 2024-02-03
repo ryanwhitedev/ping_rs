@@ -2,21 +2,23 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use crate::config::Config;
 use crate::statistics::Statistics;
 
+pub mod config;
 pub mod icmp;
 pub mod ip;
 pub mod socket;
 pub mod util;
 pub mod statistics;
 
-pub fn ping(destination: &str) {
+pub fn ping(config: Config) {
     util::register_signal_handlers();
 
-    let dst_addr = match util::resolve_hostname(destination) {
+    let dst_addr = match util::resolve_hostname(&config.destination) {
         Ok(addr) => addr,
         Err(_) => {
-            eprintln!("Unable to resolve hostname: {}", destination);
+            eprintln!("Unable to resolve hostname: {}", &config.destination);
             std::process::exit(1);
         }
     };
@@ -27,11 +29,11 @@ pub fn ping(destination: &str) {
 
     let (tx, rx) = mpsc::channel();
 
-    let mut stats = Statistics::new(destination);
+    let mut stats = Statistics::new(&config.destination);
 
     println!(
         "PING {} ({}) {}({}) bytes of data.",
-        destination,
+        &config.destination,
         dst_addr,
         payload.len() + icmp::ICMP_HDR_LEN,
         payload.len() + icmp::ICMP_HDR_LEN + ip::IPV4_HDR_LEN
@@ -39,7 +41,7 @@ pub fn ping(destination: &str) {
 
     thread::spawn(move || {
         loop {
-            let request = icmp::Request::new(dst_addr, pid, seq, payload.to_vec());
+            let request = icmp::Request::new(dst_addr, pid, seq, payload.to_vec(), config.timeout);
 
             let reply = match request.send() {
                 Ok(reply) => reply,

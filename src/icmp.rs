@@ -6,7 +6,6 @@ use crate::ip;
 use crate::socket::{SocketError, SocketIcmp};
 
 pub const ICMP_HDR_LEN: usize = 8;
-const DEFAULT_TIMEOUT: i32 = 4000; // ms
 
 pub const MAX_RECV_RETRIES: u8 = 8;
 
@@ -23,15 +22,17 @@ pub struct Request {
     pid: u16,
     seq: u16,
     payload: Vec<u8>,
+    timeout: i32,
 }
 
 impl Request {
-    pub fn new(dst_addr: Ipv4Addr, pid: u16, seq: u16, payload: Vec<u8>) -> Self {
+    pub fn new(dst_addr: Ipv4Addr, pid: u16, seq: u16, payload: Vec<u8>, timeout: i32) -> Self {
         Self {
             dst_addr,
             pid,
             seq,
             payload,
+            timeout,
         }
     }
     pub fn pack(&self) -> Vec<u8> {
@@ -58,7 +59,7 @@ impl Request {
 
         let now = Instant::now();
 
-        let socket = SocketIcmp::new(DEFAULT_TIMEOUT).expect("failed creating icmp socket");
+        let socket = SocketIcmp::new(self.timeout).expect("failed creating icmp socket");
         let _sent_bytes = socket.sendto(&request, self.dst_addr).unwrap();
 
         for _ in 0..MAX_RECV_RETRIES {
