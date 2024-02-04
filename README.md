@@ -7,25 +7,19 @@ This project leverages the `libc` library, primarily for it's convienience over 
 ## Prerequisites
 - Rust 1.56.0 or greater
 
-## Usage
-1. Clone the repository:
+## Installation
+1. Clone the repository
+2. Navigate to the project directory
+3. Run `make`
+Note: using raw sockets requires superuser privileges or the `cap_net_raw` capability.
 ```
 git clone <repo>
-```
-
-2. Navigate to the project directory:
-```
 cd ping_rs
+make
 ```
 
-3. Run `cargo build`:
+## Usage
 ```
-cargo build
+ping_rs --help
 ```
-
-4. Run the ping utility:
-```
-sudo ./target/debug/ping <hostname or IP address>
-```
-Note: using raw sockets requires superuser privileges or the `cap_net_raw` capability.
 
